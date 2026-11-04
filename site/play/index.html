@@ -202,6 +202,17 @@ window.RS_CONFIG = window.RS_CONFIG || {
     }
     this.total -= n; return n;
   };
+  /* the game pulls bytes through plain numbers (writing into Java arrays from here did not work) */
+  Conn.prototype.tmp = new Uint8Array(65540);
+  Conn.prototype.readTmp = function (len) {
+    len = Math.min(len, 65536);
+    var n = this.read(this.tmp, 0, len);
+    return n;
+  };
+  Conn.prototype.tmp4 = function (i) {
+    var t = this.tmp;
+    return (t[i] | 0) | ((t[i + 1] | 0) << 8) | ((t[i + 2] | 0) << 16) | ((t[i + 3] | 0) << 24);
+  };
   Conn.prototype.send = function (src, off, len) {
     if (this.ws.readyState !== 1) { console.log("ws send dropped, state " + this.ws.readyState); return; }
     __dbg.wsOut += len;
@@ -236,7 +247,12 @@ window.RS_CONFIG = window.RS_CONFIG || {
     out[0] = Math.ceil(m.fontBoundingBoxAscent || size * 0.8); out[1] = Math.ceil(m.fontBoundingBoxDescent || size * 0.2); out[2] = 0;
   }
   function textWidth(text, style, size) { tx.font = font(style, size); return Math.ceil(tx.measureText(text).width); }
-  function glyphs(text, style, size, tw, th, baseline, alpha) {
+  var mscratch = [0, 0, 0];
+  function metric(style, size, k) { textMetrics(style, size, mscratch); return mscratch[k] | 0; }
+  var gbuf = new Uint8Array(4);
+  function glyphAt(i) { return (gbuf[i] | 0) | ((gbuf[i + 1] | 0) << 8) | ((gbuf[i + 2] | 0) << 16) | ((gbuf[i + 3] | 0) << 24); }
+  function glyphs(text, style, size, tw, th, baseline) {
+    var alpha; if (gbuf.length < tw * th + 4) gbuf = new Uint8Array(tw * th + 4); alpha = gbuf;
     if (tc.width !== tw || tc.height !== th) { tc.width = tw; tc.height = th; } else tx.clearRect(0, 0, tw, th);
     tx.font = font(style, size); tx.fillStyle = "#fff"; tx.textBaseline = "alphabetic"; tx.fillText(text, 1, baseline);
     var d = tx.getImageData(0, 0, tw, th).data;
@@ -247,7 +263,7 @@ window.RS_CONFIG = window.RS_CONFIG || {
     cfg: function (k) { return C[k]; },
     wsOpen: function (u) { return new Conn(u); },
     present: present, viewW: viewW, viewH: viewH,
-    textMetrics: textMetrics, textWidth: textWidth, glyphs: glyphs,
+    textMetrics: textMetrics, metric: metric, textWidth: textWidth, glyphs: glyphs, glyphAt: glyphAt,
     inHas: function () { if (qi >= q.length) { q.length = 0; qi = 0; return false; } return true; },
     inNext: function () { return q[qi++]; },
     log: function (t) { console.log("[rs]", t); if (/crash|error|failed/i.test(t) && first) say(String(t).slice(0, 160), true); }
