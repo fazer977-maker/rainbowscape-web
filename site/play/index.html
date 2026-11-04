@@ -360,16 +360,17 @@ window.RS_CONFIG = window.RS_CONFIG || {
   window.__auUnlock = function () { AU.forEach(function (a) { if (a && a.ctx && a.ctx.state !== "running") { try { a.ctx.resume(); } catch (e) {} } }); };
   ["pointerdown", "touchend", "click", "keydown"].forEach(function (ev) { document.addEventListener(ev, window.__auUnlock, { passive: true }); });
   function audioOpen(rate, ch) {
-    var a = { rate: rate, ch: ch, ring: new Uint8Array(RING), rd: 0, wr: 0, last: Date.now(), ctx: null, node: null, pos: 0 };
+    var a = { rate: rate, ch: ch, ring: new Uint8Array(RING), rd: 0, wr: 0, last: Date.now(), ctx: null, node: null, pos: 0, play: false };
     try {
       var AC = window.AudioContext || window.webkitAudioContext;
       try { a.ctx = new AC({ sampleRate: rate }); } catch (e) { a.ctx = new AC(); }
       var step = rate / a.ctx.sampleRate, bps = 2 * ch;
-      a.node = a.ctx.createScriptProcessor(4096, 0, 2);
+      a.node = a.ctx.createScriptProcessor(8192, 0, 2);
       a.node.onaudioprocess = function (e) {
         var L = e.outputBuffer.getChannelData(0), R = e.outputBuffer.getChannelData(1), n = L.length, ring = a.ring, pos = a.pos;
         for (var i = 0; i < n; i++) {
-          if (a.wr - a.rd < bps) { L[i] = 0; R[i] = 0; continue; }
+          if (!a.play) { if (a.wr - a.rd >= rate * bps * 0.3) a.play = true; else { L[i] = 0; R[i] = 0; continue; } }
+          if (a.wr - a.rd < bps) { a.play = false; L[i] = 0; R[i] = 0; continue; }
           var p = a.rd & MASK, l = (ring[p] | (ring[(p + 1) & MASK] << 8)) << 16 >> 16, r = l;
           if (ch > 1) r = (ring[(p + 2) & MASK] | (ring[(p + 3) & MASK] << 8)) << 16 >> 16;
           L[i] = l / 32768; R[i] = r / 32768;
