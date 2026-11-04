@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0714">
+<title>Rainbow Scape</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0714; overflow: hidden; overscroll-behavior: none; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block;
+          image-rendering: auto; background: #000; -webkit-tap-highlight-color: transparent; }
+  #status { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 14px; color: #fff; font: 600 15px/1.4 system-ui, sans-serif; text-align: center; padding: 24px; z-index: 5; }
+  #status h1 { margin: 0; font-size: 26px; letter-spacing: .04em;
+               background: linear-gradient(90deg,#ff4d6d,#ffb84d,#f6ff4d,#4dff88,#4dc8ff,#a64dff,#ff4de1); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #status .bar { width: min(260px, 70vw); height: 8px; border-radius: 6px; background: #2a2145; overflow: hidden; }
+  #status .bar i { display: block; height: 100%; width: 40%; background: linear-gradient(90deg,#ff4d6d,#ffb84d,#4dff88,#4dc8ff,#a64dff); animation: sl 1.1s linear infinite; }
+  @keyframes sl { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+  #kbtn { position: fixed; right: max(10px, env(safe-area-inset-right)); top: max(10px, env(safe-area-inset-top)); z-index: 4;
+          width: 44px; height: 44px; border-radius: 12px; border: 2px solid #ffffff55; background: #0a0714bb; color: #fff; font-size: 20px; display: none; }
+  #kb { position: fixed; left: -100px; top: 0; width: 20px; height: 20px; opacity: 0; font-size: 16px; }
+  body.touch #kbtn { display: block; }
+</style>
+</head>
+<body>
+<canvas id="game" width="765" height="503"></canvas>
+<button id="kbtn" aria-label="Keyboard">&#9000;</button>
+<input id="kb" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send">
+<div id="status"><h1>RAINBOW SCAPE</h1><div class="bar"><i></i></div><div id="msg">Loading game&hellip;</div></div>
+
+<script src="config.js"></script>
+<script>
+/* ---- default settings (config.js next to this page overrides them) for your server --------------------------------------------- */
+window.RS_CONFIG = window.RS_CONFIG || {
+  host: "play.rainbowscape.example",   // shown to the game; the bridge decides the real target
+  wsUrl: "",                            // e.g. "wss://play.yourdomain.com/ws" (empty = same host, /ws)
+  world: 1, serverPort: 43594, wlPort: 43595, js5Port: 43595,
+  maxWidth: 960                         // widest the game draws; the canvas is stretched to the screen
+};
+</script>
+<script>
+(function () {
+  "use strict";
+  var C = window.RS_CONFIG;
+  if (!C.wsUrl) C.wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
+  var canvas = document.getElementById("game"), ctx = canvas.getContext("2d", { alpha: false });
+  var statusEl = document.getElementById("status"), msgEl = document.getElementById("msg");
+  var touchy = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
+  if (touchy) document.body.classList.add("touch");
+
+  function say(t, bad) { msgEl.textContent = t; if (bad) statusEl.style.color = "#ff8a9b"; }
+
+  /* ---- input queue (flat ints, 4 per event) read by the game thread --------------------- */
+  var q = [], qi = 0;
+  function push(k, a, b, c) { if (q.length > 4000) return; q.push(k | 0, a | 0, b | 0, c | 0); }
+
+  function pos(e) {
+    var r = canvas.getBoundingClientRect();
+    return [Math.round((e.clientX - r.left) * canvas.width / r.width), Math.round((e.clientY - r.top) * canvas.height / r.height)];
+  }
+
+  /* ---- mouse (desktop) ------------------------------------------------------------------ */
+  var mouseDown = 0;
+  canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  canvas.addEventListener("pointerdown", function (e) {
+    if (e.pointerType === "touch") return;
+    var p = pos(e); canvas.setPointerCapture(e.pointerId);
+    var b = e.button === 2 ? 3 : 1; mouseDown = b;
+    push(1, p[0], p[1], 0); push(2, p[0], p[1], b); e.preventDefault();
+  });
+  canvas.addEventListener("pointermove", function (e) {
+    if (e.pointerType === "touch") return;
+    var p = pos(e); push(mouseDown === 1 ? 4 : 1, p[0], p[1], 0);
+  });
+  canvas.addEventListener("pointerup", function (e) {
+    if (e.pointerType === "touch") return;
+    var p = pos(e); push(3, p[0], p[1], mouseDown || 1); mouseDown = 0;
+  });
+  canvas.addEventListener("wheel", function (e) {
+    var p = pos(e); push(5, p[0], p[1], e.deltaY > 0 ? 1 : -1); e.preventDefault();
+  }, { passive: false });
+
+  /* ---- touch: tap = click, hold = right click, drag = drag, two fingers = camera/zoom ----- */
+  var T = { pts: {}, n: 0, start: null, dragging: false, longTimer: 0, longDone: false, cx: 0, cy: 0, dist: 0, accX: 0, accY: 0 };
+  function tcount() { return Object.keys(T.pts).length; }
+  canvas.addEventListener("touchstart", function (e) {
+    e.preventDefault();
+    for (var i = 0; i < e.changedTouches.length; i++) T.pts[e.changedTouches[i].identifier] = e.changedTouches[i];
+    var n = tcount();
+    if (n === 1) {
+      var t = e.changedTouches[0], p = pos(t);
+      T.start = { x: t.clientX, y: t.clientY, p: p }; T.dragging = false; T.longDone = false;
+      push(1, p[0], p[1], 0);
+      clearTimeout(T.longTimer);
+      T.longTimer = setTimeout(function () {
+        if (!T.dragging && tcount() === 1) { T.longDone = true; push(2, T.start.p[0], T.start.p[1], 3); push(3, T.start.p[0], T.start.p[1], 3); }
+      }, 450);
+    } else if (n === 2) {
+      clearTimeout(T.longTimer);
+      if (T.dragging) { var s = T.start.p; push(3, s[0], s[1], 1); }
+      T.dragging = false; T.longDone = true;
+      var ts = Object.keys(T.pts).map(function (k) { return T.pts[k]; });
+      T.cx = (ts[0].clientX + ts[1].clientX) / 2; T.cy = (ts[0].clientY + ts[1].clientY) / 2;
+      T.dist = Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY); T.accX = T.accY = 0;
+    }
+  }, { passive: false });
+  canvas.addEventListener("touchmove", function (e) {
+    e.preventDefault();
+    for (var i = 0; i < e.changedTouches.length; i++) if (T.pts[e.changedTouches[i].identifier]) T.pts[e.changedTouches[i].identifier] = e.changedTouches[i];
+    var n = tcount();
+    if (n === 1 && T.start && !T.longDone) {
+      var t = e.changedTouches[0], p = pos(t);
+      if (!T.dragging && Math.hypot(t.clientX - T.start.x, t.clientY - T.start.y) > 10) {
+        T.dragging = true; clearTimeout(T.longTimer);
+        push(2, T.start.p[0], T.start.p[1], 1);
+      }
+      if (T.dragging) push(4, p[0], p[1], 0);
+    } else if (n === 2) {
+      var ts = Object.keys(T.pts).map(function (k) { return T.pts[k]; });
+      var cx = (ts[0].clientX + ts[1].clientX) / 2, cy = (ts[0].clientY + ts[1].clientY) / 2;
+      var d = Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
+      T.accX += cx - T.cx; T.accY += cy - T.cy; T.cx = cx; T.cy = cy;
+      while (T.accX > 14) { push(8, 39, 0, 0); T.accX -= 14; }
+      while (T.accX < -14) { push(8, 37, 0, 0); T.accX += 14; }
+      while (T.accY > 14) { push(8, 40, 0, 0); T.accY -= 14; }
+      while (T.accY < -14) { push(8, 38, 0, 0); T.accY += 14; }
+      if (Math.abs(d - T.dist) > 24) { push(5, canvas.width >> 1, canvas.height >> 1, d > T.dist ? -1 : 1); T.dist = d; }
+    }
+  }, { passive: false });
+  function tend(e) {
+    e.preventDefault();
+    var wasOne = tcount() === 1;
+    for (var i = 0; i < e.changedTouches.length; i++) delete T.pts[e.changedTouches[i].identifier];
+    if (wasOne && T.start) {
+      clearTimeout(T.longTimer);
+      var t = e.changedTouches[0], p = pos(t);
+      if (T.dragging) push(3, p[0], p[1], 1);
+      else if (!T.longDone) { push(2, T.start.p[0], T.start.p[1], 1); push(3, T.start.p[0], T.start.p[1], 1); }
+      T.start = null; T.dragging = false;
+    }
+  }
+  canvas.addEventListener("touchend", tend, { passive: false });
+  canvas.addEventListener("touchcancel", tend, { passive: false });
+
+  /* ---- keyboard ------------------------------------------------------------------------- */
+  var kb = document.getElementById("kb"), kbtn = document.getElementById("kbtn");
+  kbtn.addEventListener("click", function () { if (document.activeElement === kb) kb.blur(); else kb.focus(); });
+  var NAV = { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, PageUp: 33, PageDown: 34, Home: 36, End: 35 };
+  var CTL = { Enter: [10, 10], Backspace: [8, 8], Tab: [9, 9], Escape: [27, 27], Delete: [127, 127] };
+  document.addEventListener("keydown", function (e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (NAV[e.key] !== undefined) { push(8, NAV[e.key], 0, 0); e.preventDefault(); return; }
+    if (CTL[e.key]) { push(7, CTL[e.key][0], CTL[e.key][1], 0); e.preventDefault(); return; }
+    if (e.key && e.key.length === 1 && e.target !== kb) { push(6, e.key.charCodeAt(0), 0, 0); e.preventDefault(); }
+  });
+  kb.addEventListener("beforeinput", function (e) {
+    var t = e.inputType;
+    if (t === "insertText" && e.data) { for (var i = 0; i < e.data.length; i++) push(6, e.data.charCodeAt(i), 0, 0); }
+    else if (t === "deleteContentBackward") push(7, 8, 8, 0);
+    else if (t === "insertLineBreak" || t === "insertParagraph") push(7, 10, 10, 0);
+    e.preventDefault();
+  });
+  kb.addEventListener("keydown", function (e) { if (e.key === "Unidentified") return; e.stopPropagation(); if (CTL[e.key]) { push(7, CTL[e.key][0], CTL[e.key][1], 0); e.preventDefault(); } else if (NAV[e.key] !== undefined) { push(8, NAV[e.key], 0, 0); e.preventDefault(); } });
+  window.addEventListener("focus", function () { push(9, 1, 0, 0); });
+  window.addEventListener("blur", function () { push(9, 0, 0, 0); });
+
+  /* ---- sockets: WebSocket with a byte queue -------------------------------------------- */
+  function Conn(url) {
+    var self = this; this.state = 0; this.chunks = []; this.head = 0; this.total = 0;
+    var ws = this.ws = new WebSocket(url); ws.binaryType = "arraybuffer";
+    ws.onopen = function () { self.state = 1; };
+    ws.onclose = ws.onerror = function () { self.state = 2; };
+    ws.onmessage = function (m) { var u = new Uint8Array(m.data); self.chunks.push(u); self.total += u.length; };
+  }
+  Conn.prototype.avail = function () { return this.total; };
+  Conn.prototype.read = function (dst, off, len) {
+    var n = 0;
+    while (n < len && this.chunks.length) {
+      var c = this.chunks[0], take = Math.min(len - n, c.length - this.head);
+      for (var i = 0; i < take; i++) dst[off + n + i] = c[this.head + i] << 24 >> 24;
+      n += take; this.head += take;
+      if (this.head >= c.length) { this.chunks.shift(); this.head = 0; }
+    }
+    this.total -= n; return n;
+  };
+  Conn.prototype.send = function (src, off, len) {
+    if (this.ws.readyState !== 1) return;
+    this.ws.send(new Uint8Array(src.buffer, src.byteOffset + off, len).slice());
+  };
+  Conn.prototype.close = function () { this.state = 2; try { this.ws.close(); } catch (e) {} };
+
+  /* ---- display -------------------------------------------------------------------------- */
+  var img = null, img32 = null, first = true;
+  function present(px, w, h, cx, cy, cw, ch) {
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; img = null; cx = 0; cy = 0; cw = w; ch = h; }
+    if (!img) { img = ctx.createImageData(w, h); img32 = new Uint32Array(img.data.buffer); cx = 0; cy = 0; cw = w; ch = h; }
+    if (cx < 0) { cw += cx; cx = 0; } if (cy < 0) { ch += cy; cy = 0; }
+    if (cx + cw > w) cw = w - cx; if (cy + ch > h) ch = h - cy;
+    if (cw <= 0 || ch <= 0) return;
+    for (var y = cy; y < cy + ch; y++) {
+      var i = y * w + cx, end = i + cw;
+      for (; i < end; i++) { var p = px[i]; img32[i] = 0xFF000000 | ((p & 0xFF) << 16) | (p & 0xFF00) | ((p >> 16) & 0xFF); }
+    }
+    ctx.putImageData(img, 0, 0, cx, cy, cw, ch);
+    if (first) { first = false; statusEl.style.display = "none"; }
+  }
+  function viewW() { return Math.max(200, Math.floor(Math.min(window.innerWidth, C.maxWidth))); }
+  function viewH() { var s = Math.min(1, C.maxWidth / window.innerWidth); return Math.max(200, Math.floor(window.innerHeight * s)); }
+
+  /* ---- text: canvas 2D draws the glyphs, Java blends them into the frame ---------------- */
+  var tc = document.createElement("canvas"), tx = tc.getContext("2d", { willReadFrequently: true });
+  function font(style, size) { return ((style & 2) ? "italic " : "") + ((style & 1) ? "bold " : "") + size + "px sans-serif"; }
+  function textMetrics(style, size, out) {
+    tx.font = font(style, size); var m = tx.measureText("Mg");
+    out[0] = Math.ceil(m.fontBoundingBoxAscent || size * 0.8); out[1] = Math.ceil(m.fontBoundingBoxDescent || size * 0.2); out[2] = 0;
+  }
+  function textWidth(text, style, size) { tx.font = font(style, size); return Math.ceil(tx.measureText(text).width); }
+  function glyphs(text, style, size, tw, th, baseline, alpha) {
+    if (tc.width !== tw || tc.height !== th) { tc.width = tw; tc.height = th; } else tx.clearRect(0, 0, tw, th);
+    tx.font = font(style, size); tx.fillStyle = "#fff"; tx.textBaseline = "alphabetic"; tx.fillText(text, 1, baseline);
+    var d = tx.getImageData(0, 0, tw, th).data;
+    for (var i = 0, n = tw * th; i < n; i++) alpha[i] = d[i * 4 + 3];
+  }
+
+  window.rs = {
+    cfg: function (k) { return C[k]; },
+    wsOpen: function (u) { return new Conn(u); },
+    present: present, viewW: viewW, viewH: viewH,
+    textMetrics: textMetrics, textWidth: textWidth, glyphs: glyphs,
+    inHas: function () { if (qi >= q.length) { q.length = 0; qi = 0; return false; } return true; },
+    inNext: function () { return q[qi++]; },
+    log: function (t) { console.log("[rs]", t); if (/crash|error|failed/i.test(t) && first) say(String(t).slice(0, 160), true); }
+  };
+
+  /* ---- start ---------------------------------------------------------------------------- */
+  var s = document.createElement("script");
+  s.src = "rainbow.js";
+  s.onload = function () { say("Starting client…"); try { main([]); } catch (e) { say("Could not start: " + e, true); console.error(e); } };
+  s.onerror = function () { say("Could not load rainbow.js", true); };
+  document.body.appendChild(s);
+})();
+</script>
+</body>
+</html>
