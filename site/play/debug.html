@@ -1,0 +1,46 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rainbow Scape debug</title>
+<script src="config.js"></script>
+<style>
+body{margin:0;background:#0b0b10;color:#e8e8f0;font:14px/1.45 monospace;padding:12px}
+h1{font-size:17px;margin:0 0 8px}
+button{font:inherit;padding:10px 14px;margin:4px 6px 4px 0;border-radius:8px;border:1px solid #556;background:#1d1d2b;color:#fff}
+#log{white-space:pre-wrap;word-break:break-all;margin-top:10px}
+.ok{color:#5f5}.bad{color:#f66}.dim{color:#99a}
+</style></head><body>
+<h1>Rainbow Scape connection test</h1>
+<div class="dim" id="cfg"></div>
+<button id="a">Test game port 43595</button>
+<button id="b">Test port 43594</button>
+<button id="c">Copy log</button>
+<div id="log"></div>
+<script>
+var L=document.getElementById('log'),lines=[];
+function log(t,c){var s=((performance.now()/1000).toFixed(2)+'s ')+t;lines.push(s);var d=document.createElement('div');d.textContent=s;if(c)d.className=c;L.appendChild(d)}
+var C=window.RS_CONFIG||{};
+var base=new URLSearchParams(location.search).get('ws')||C.wsUrl||'';
+document.getElementById('cfg').textContent='wsUrl: '+(base||'(missing)')+'\nhost: '+C.host+'  world: '+C.world;
+window.onerror=function(m,s,l){log('PAGE ERROR '+m+' @'+l,'bad')};
+function hex(u){var a=[];for(var i=0;i<Math.min(u.length,32);i++)a.push((u[i]<16?'0':'')+u[i].toString(16));return a.join(' ')+(u.length>32?' ...':'')}
+function test(port){
+  log('--- testing port '+port+' ---');
+  var url=base+(base.indexOf('?')>=0?'&':'?')+'port='+port, got=0, step=0, ws;
+  try{ws=new WebSocket(url)}catch(e){log('cannot create WebSocket: '+e,'bad');return}
+  ws.binaryType='arraybuffer';
+  var t=setTimeout(function(){log('TIMEOUT after 12s (got '+got+' bytes)','bad');try{ws.close()}catch(e){}},12000);
+  ws.onopen=function(){log('websocket OPEN','ok');
+    var b=new Uint8Array([15,0,0,2,18]);ws.send(b);log('sent JS5 hello: '+hex(b)+' (op 15, revision 530)')};
+  ws.onmessage=function(e){var u=new Uint8Array(e.data);got+=u.length;log('received '+u.length+' bytes: '+hex(u),'ok');
+    if(step==0){step=1;
+      if(u[0]===0){log('server accepted revision 530','ok');var r=new Uint8Array([1,255,0,255]);ws.send(r);log('sent master index request: '+hex(r))}
+      else{log('server answered '+u[0]+' (0 = ok, 6 = wrong revision)','bad')}}
+    else if(step==1&&got>10){step=2;log('GOT DATA - the server connection works. The game should load.','ok');clearTimeout(t);setTimeout(function(){ws.close()},500)}};
+  ws.onerror=function(){log('websocket ERROR (blocked, bad certificate or bridge down)','bad')};
+  ws.onclose=function(e){clearTimeout(t);log('websocket CLOSED code='+e.code+' reason="'+e.reason+'"',e.code==1000||e.code==1005?'':'bad')};
+}
+document.getElementById('a').onclick=function(){test(43595)};
+document.getElementById('b').onclick=function(){test(43594)};
+document.getElementById('c').onclick=function(){var t=lines.join('\n');try{navigator.clipboard.writeText(t);log('copied')}catch(e){log('copy failed')}};
+test(43595);
+</script></body></html>
