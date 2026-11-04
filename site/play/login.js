@@ -229,6 +229,7 @@
   var lastRun = 0;
   window.rs = window.rs || {};
   window.rs.ls = function (gs, pct, text, ms, step, hop, reply, reconn, intLogout, frames) {
+    if (/[?&]debug/.test(location.search)) { var tn = Date.now(); if (!window.__f0) { window.__f0 = tn; window.__ff = frames; } else if (tn - window.__f0 >= 3000) { console.log("[rs] game " + Math.round((frames - window.__ff) * 1000 / (tn - window.__f0)) + " fps, canvas " + (document.querySelector("canvas") || {}).width + "x" + (document.querySelector("canvas") || {}).height); window.__f0 = tn; window.__ff = frames; } }
     S.gs = gs; S.pct = pct; S.text = text; S.ms = ms; S.step = step; S.hop = hop; S.reply = reply; S.reconn = !!reconn; S.intLogout = !!intLogout; S.frames = frames;
     var n = Date.now(); if (n - lastRun < 100) return; lastRun = n;
     try { update(); } catch (e) { console.log("login ui: " + e); }
