@@ -18,6 +18,8 @@
   @keyframes sl { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
   #kbtn { position: fixed; right: max(10px, env(safe-area-inset-right)); top: max(10px, env(safe-area-inset-top)); z-index: 4;
           width: 44px; height: 44px; border-radius: 12px; border: 2px solid #ffffff55; background: #0a0714bb; color: #fff; font-size: 20px; display: none; }
+  #fsbtn { position: fixed; right: calc(max(10px, env(safe-area-inset-right)) + 54px); top: max(10px, env(safe-area-inset-top)); z-index: 4;
+          width: 44px; height: 44px; border-radius: 12px; border: 2px solid #ffffff55; background: #0a0714bb; color: #fff; font-size: 22px; display: block; }
   #kb { position: fixed; left: -100px; top: 0; width: 20px; height: 20px; opacity: 0; font-size: 16px; }
   body.touch #kbtn { display: block; }
 </style>
@@ -25,6 +27,7 @@
 <body>
 <canvas id="game" width="765" height="503"></canvas>
 <button id="kbtn" aria-label="Keyboard">&#9000;</button>
+<button id="fsbtn" aria-label="Full screen">&#9974;</button>
 <input id="kb" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send">
 <div id="status"><h1>RAINBOW SCAPE</h1><div class="bar"><i></i></div><div id="msg">Loading game&hellip;</div></div>
 
@@ -349,6 +352,20 @@ window.RS_CONFIG = window.RS_CONFIG || {
   document.body.appendChild(s);
   }
 })();
+
+  /* ---- full screen button ---------------------------------------------------------------- */
+  (function () {
+    var b = document.getElementById("fsbtn"), d = document;
+    b.addEventListener("click", function (e) {
+      e.preventDefault();
+      try {
+        if (d.fullscreenElement || d.webkitFullscreenElement) { (d.exitFullscreen || d.webkitExitFullscreen).call(d); return; }
+        var el = d.documentElement, p = (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+        var lock = function () { try { screen.orientation.lock("landscape").catch(function () {}); } catch (x) {} };
+        if (p && p.then) p.then(lock, function () {}); else lock();
+      } catch (x) { console.log("fullscreen failed: " + x); }
+    });
+  })();
 </script>
 </body>
 </html>
