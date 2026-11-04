@@ -20,6 +20,8 @@
           width: 44px; height: 44px; border-radius: 12px; border: 2px solid #ffffff55; background: #0a0714bb; color: #fff; font-size: 20px; display: none; }
   #fsbtn { position: fixed; right: calc(max(10px, env(safe-area-inset-right)) + 54px); top: max(10px, env(safe-area-inset-top)); z-index: 4;
           width: 44px; height: 44px; border-radius: 12px; border: 2px solid #ffffff55; background: #0a0714bb; color: #fff; font-size: 22px; display: block; }
+  #szbtn { position: fixed; right: calc(max(10px, env(safe-area-inset-right)) + 108px); top: max(10px, env(safe-area-inset-top)); z-index: 4;
+          min-width: 44px; height: 44px; border-radius: 12px; border: 2px solid #ffffff55; background: #0a0714bb; color: #fff; font: 600 13px system-ui, sans-serif; padding: 0 8px; }
   #kb { position: fixed; left: -100px; top: 0; width: 20px; height: 20px; opacity: 0; font-size: 16px; }
   body.touch #kbtn { display: block; }
 </style>
@@ -27,6 +29,7 @@
 <body>
 <canvas id="game" width="765" height="503"></canvas>
 <button id="kbtn" aria-label="Keyboard">&#9000;</button>
+<button id="szbtn" aria-label="UI size">UI</button>
 <button id="fsbtn" aria-label="Full screen">&#9974;</button>
 <input id="kb" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send">
 <div id="status"><h1>RAINBOW SCAPE</h1><div class="bar"><i></i></div><div id="msg">Loading game&hellip;</div></div>
@@ -259,8 +262,10 @@ window.RS_CONFIG = window.RS_CONFIG || {
     ctx.putImageData(img, 0, 0, cx, cy, cw, ch);
     if (first) { first = false; statusEl.style.display = "none"; }
   }
-  function viewW() { return Math.max(200, Math.floor(Math.min(window.innerWidth, C.maxWidth))); }
-  function viewH() { var s = Math.min(1, C.maxWidth / window.innerWidth); return Math.max(200, Math.floor(window.innerHeight * s)); }
+  var SIZES = [720, 960, 1200, 1500], gameW = 1200;
+  try { var sv = parseInt(localStorage.getItem("rs-w"), 10); if (sv >= 600 && sv <= 2000) gameW = sv; } catch (e) {}
+  function viewW() { return Math.max(200, gameW); }
+  function viewH() { return Math.max(200, Math.floor(window.innerHeight * gameW / window.innerWidth)); }
 
   /* ---- text: canvas 2D draws the glyphs, Java blends them into the frame ---------------- */
   var tc = document.createElement("canvas"), tx = tc.getContext("2d", { willReadFrequently: true });
@@ -351,6 +356,24 @@ window.RS_CONFIG = window.RS_CONFIG || {
   s.onerror = function () { say("Could not load rainbow.js", true); };
   document.body.appendChild(s);
   }
+  /* ---- UI size button: bigger number = smaller interface (sharper, a bit slower) ------------ */
+  (function () {
+    var b = document.getElementById("szbtn");
+    b.textContent = "UI " + (gameW / 100 | 0);
+    b.addEventListener("click", function (e) {
+      e.preventDefault();
+      var i = SIZES.indexOf(gameW); gameW = SIZES[(i + 1) % SIZES.length];
+      try { localStorage.setItem("rs-w", String(gameW)); } catch (x) {}
+      location.reload();
+    });
+  })();
+  var inGame = false;
+  window.rs.gameState = function (st) { inGame = (st === 30 || st === 25 || st === 28); };
+  /* in the game world a tap on the screen hides the on-screen keyboard (use the keyboard button for chat) */
+  canvas.addEventListener("touchend", function () {
+    if (inGame && document.activeElement === kb) kb.blur();
+  }, { passive: true });
+
 })();
 
   /* ---- full screen button ---------------------------------------------------------------- */
@@ -366,6 +389,7 @@ window.RS_CONFIG = window.RS_CONFIG || {
       } catch (x) { console.log("fullscreen failed: " + x); }
     });
   })();
+
 </script>
 </body>
 </html>
