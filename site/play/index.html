@@ -28,6 +28,20 @@
 <input id="kb" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send">
 <div id="status"><h1>RAINBOW SCAPE</h1><div class="bar"><i></i></div><div id="msg">Loading game&hellip;</div></div>
 
+<script>
+/* debug: put the JS stack inside error names so the on-screen log shows where an error came from */
+(function(){
+  var busy=false;
+  function snip(e){
+    if(busy)return '';busy=true;
+    try{var st=String(e.stack||'').split('\n').slice(1,9).map(function(l){return l.trim().replace(/^at /,'').replace(/https?:\/\/[^ )]*\//g,'')}).join(' < ');return st?' ['+st+']':''}
+    catch(x){return ''}finally{busy=false}
+  }
+  ['TypeError','RangeError','ReferenceError'].forEach(function(n){
+    try{Object.defineProperty(window[n].prototype,'name',{configurable:true,get:function(){return n+snip(this)}})}catch(e){}
+  });
+})();
+</script>
 <div id="dbg" style="position:fixed;left:0;top:0;max-width:100%;max-height:48vh;overflow:hidden;background:rgba(0,0,0,.72);color:#9f9;font:11px/1.3 monospace;padding:4px 6px;z-index:50;pointer-events:none;white-space:pre-wrap;word-break:break-all"></div>
 <button id="dbgt" style="position:fixed;right:6px;bottom:6px;z-index:51;font:12px monospace;padding:6px 9px;border-radius:6px;border:1px solid #666;background:#222;color:#ccc">log</button>
 <script>
@@ -41,7 +55,7 @@
   window.addEventListener('error',function(e){add('ERR ',[e.message+' @'+(e.filename||'').split('/').pop()+':'+e.lineno])});
   window.addEventListener('unhandledrejection',function(e){add('ERR ',['promise: '+(e.reason&&e.reason.message||e.reason)])});
   tg.onclick=function(){on=!on;el.style.display=on?'block':'none';if(on)el.textContent=lines.join('\n')};
-  setInterval(function(){add('',['alive frames='+__dbg.frames+' ws in/out='+__dbg.wsIn+'/'+__dbg.wsOut])},4000);
+  var lastIn=0,lastT=Date.now();setInterval(function(){var n=Date.now(),r=Math.round((__dbg.wsIn-lastIn)/Math.max(1,n-lastT)); lastIn=__dbg.wsIn;lastT=n;add('',['alive frames='+__dbg.frames+' in='+(__dbg.wsIn/1048576).toFixed(1)+'MB rate='+r+'KB/s'])},4000);
   add('',['page started, ua='+navigator.userAgent.slice(0,60)]);
 })();
 </script>
@@ -204,6 +218,12 @@ window.RS_CONFIG = window.RS_CONFIG || {
   };
   /* the game pulls bytes through plain numbers (writing into Java arrays from here did not work) */
   Conn.prototype.tmp = new Uint8Array(65540);
+  function latin1(u, n) {
+    var out = "", CH = 8192;
+    for (var i = 0; i < n; i += CH) out += String.fromCharCode.apply(null, u.subarray(i, Math.min(n, i + CH)));
+    return out;
+  }
+  Conn.prototype.readStr = function (len) { var n = this.read(this.tmp, 0, Math.min(len, 65536)); return latin1(this.tmp, n); };
   Conn.prototype.readTmp = function (len) {
     len = Math.min(len, 65536);
     var n = this.read(this.tmp, 0, len);
@@ -306,6 +326,7 @@ window.RS_CONFIG = window.RS_CONFIG || {
     cacheLen: function (f) { return (f in MT) ? MT[f] : -1; },
     cacheHas: function (f, p) { return PG[ck(f, p)] ? 1 : 0; },
     cacheGet4: function (f, p, i) { var t = PG[ck(f, p)]; if (!t) return 0; return (t[i] | 0) | ((t[i + 1] | 0) << 8) | ((t[i + 2] | 0) << 16) | ((t[i + 3] | 0) << 24); },
+    cacheGetStr: function (f, p) { var t = PG[ck(f, p)]; return t ? latin1(t, t.length) : ""; },
     cacheDrop: function (f, p) { delete PG[ck(f, p)]; },
     cachePut: function (f, p, a, n) { var u = new Uint8Array(a.buffer, a.byteOffset, n).slice(); pend[ck(f, p)] = u; if (f.indexOf("main_file_cache") !== 0) PG[ck(f, p)] = u; sched(); },
     cacheMeta: function (f, n) { MT[f] = n; pendMeta[f] = n; sched(); },
