@@ -259,8 +259,56 @@ window.RS_CONFIG = window.RS_CONFIG || {
     for (var i = 0, n = tw * th; i < n; i++) alpha[i] = d[i * 4 + 3];
   }
 
+
+  /* ---- saved game cache (IndexedDB): the game reads these through plain numbers ---------- */
+  var DB = null, PG = {}, MT = {}, pend = {}, pendMeta = {}, ft = 0;
+  function ck(f, p) { return f + "|" + p; }
+  function sched() { if (!ft) ft = setTimeout(flush, 800); }
+  function flush() {
+    ft = 0;
+    var ks = Object.keys(pend), mk = Object.keys(pendMeta);
+    if (!DB || (!ks.length && !mk.length)) return;
+    var P = pend, M = pendMeta; pend = {}; pendMeta = {};
+    try {
+      var tx = DB.transaction(["pages", "meta"], "readwrite"), ps = tx.objectStore("pages"), ms = tx.objectStore("meta");
+      ks.forEach(function (k) { ps.put(P[k], k); }); mk.forEach(function (k) { ms.put(M[k], k); });
+      tx.onerror = tx.onabort = function () { console.log("cache save failed"); };
+    } catch (e) { console.log("cache save error " + e); }
+  }
+  document.addEventListener("visibilitychange", function () { if (document.hidden) flush(); });
+  window.addEventListener("pagehide", flush);
+  function openCache(done) {
+    var finished = false; function fin() { if (!finished) { finished = true; done(); } }
+    try {
+      if (/[?&]resetcache/.test(location.search)) { indexedDB.deleteDatabase("rs-cache-v1"); console.log("saved cache cleared"); }
+      var r = indexedDB.open("rs-cache-v1", 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore("pages"); r.result.createObjectStore("meta"); };
+      r.onerror = r.onblocked = function () { console.log("saved cache unavailable"); fin(); };
+      r.onsuccess = function () {
+        DB = r.result; var n = 0;
+        try {
+          var tx = DB.transaction(["pages", "meta"], "readonly");
+          var c1 = tx.objectStore("pages").openCursor();
+          c1.onsuccess = function () { var c = c1.result; if (c) { PG[c.key] = c.value instanceof Uint8Array ? c.value : new Uint8Array(c.value); n++; c.continue(); } };
+          var c2 = tx.objectStore("meta").openCursor();
+          c2.onsuccess = function () { var c = c2.result; if (c) { MT[c.key] = c.value; c.continue(); } };
+          tx.oncomplete = function () { console.log("saved cache: " + n + " pages"); fin(); };
+          tx.onerror = tx.onabort = function () { console.log("saved cache read failed"); fin(); };
+        } catch (e) { console.log("saved cache error " + e); fin(); }
+      };
+      setTimeout(fin, 8000);
+    } catch (e) { console.log("saved cache off: " + e); fin(); }
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+  }
+
   window.rs = {
     cfg: function (k) { return C[k]; },
+    cacheLen: function (f) { return (f in MT) ? MT[f] : -1; },
+    cacheHas: function (f, p) { return PG[ck(f, p)] ? 1 : 0; },
+    cacheGet4: function (f, p, i) { var t = PG[ck(f, p)]; if (!t) return 0; return (t[i] | 0) | ((t[i + 1] | 0) << 8) | ((t[i + 2] | 0) << 16) | ((t[i + 3] | 0) << 24); },
+    cacheDrop: function (f, p) { delete PG[ck(f, p)]; },
+    cachePut: function (f, p, a, n) { var u = new Uint8Array(a.buffer, a.byteOffset, n).slice(); pend[ck(f, p)] = u; if (f.indexOf("main_file_cache") !== 0) PG[ck(f, p)] = u; sched(); },
+    cacheMeta: function (f, n) { MT[f] = n; pendMeta[f] = n; sched(); },
     wsOpen: function (u) { return new Conn(u); },
     present: present, viewW: viewW, viewH: viewH,
     textMetrics: textMetrics, metric: metric, textWidth: textWidth, glyphs: glyphs, glyphAt: glyphAt,
@@ -270,11 +318,15 @@ window.RS_CONFIG = window.RS_CONFIG || {
   };
 
   /* ---- start ---------------------------------------------------------------------------- */
+  say("Loading saved data…");
+  openCache(startGame);
+  function startGame() {
   var s = document.createElement("script");
   s.src = "rainbow.js";
   s.onload = function () { say("Starting client…"); console.log("rainbow.js loaded, calling main"); try { main([]); } catch (e) { say("Could not start: " + e, true); console.error(e); } };
   s.onerror = function () { say("Could not load rainbow.js", true); };
   document.body.appendChild(s);
+  }
 })();
 </script>
 </body>
