@@ -28,6 +28,23 @@
 <input id="kb" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send">
 <div id="status"><h1>RAINBOW SCAPE</h1><div class="bar"><i></i></div><div id="msg">Loading game&hellip;</div></div>
 
+<div id="dbg" style="position:fixed;left:0;top:0;max-width:100%;max-height:48vh;overflow:hidden;background:rgba(0,0,0,.72);color:#9f9;font:11px/1.3 monospace;padding:4px 6px;z-index:50;pointer-events:none;white-space:pre-wrap;word-break:break-all"></div>
+<button id="dbgt" style="position:fixed;right:6px;bottom:6px;z-index:51;font:12px monospace;padding:6px 9px;border-radius:6px;border:1px solid #666;background:#222;color:#ccc">log</button>
+<script>
+(function(){
+  var el=document.getElementById('dbg'),lines=[],t0=Date.now(),on=true,tg=document.getElementById('dbgt');
+  window.__dbg={frames:0,wsIn:0,wsOut:0};
+  function add(c,a){var m=Array.prototype.slice.call(a).map(function(x){try{return typeof x==='string'?x:(x&&x.stack)||JSON.stringify(x)}catch(e){return String(x)}}).join(' ');
+    lines.push(((Date.now()-t0)/1000).toFixed(1)+'s '+c+m.slice(0,220));if(lines.length>26)lines.shift();if(on)el.textContent=lines.join('\n');}
+  window.__dbgAdd=function(m){add('',[m])};
+  ['log','info','warn','error'].forEach(function(k){var o=console[k];console[k]=function(){add(k==='error'?'ERR ':k==='warn'?'WARN ':'',arguments);try{o.apply(console,arguments)}catch(e){}}});
+  window.addEventListener('error',function(e){add('ERR ',[e.message+' @'+(e.filename||'').split('/').pop()+':'+e.lineno])});
+  window.addEventListener('unhandledrejection',function(e){add('ERR ',['promise: '+(e.reason&&e.reason.message||e.reason)])});
+  tg.onclick=function(){on=!on;el.style.display=on?'block':'none';if(on)el.textContent=lines.join('\n')};
+  setInterval(function(){add('',['alive frames='+__dbg.frames+' ws in/out='+__dbg.wsIn+'/'+__dbg.wsOut])},4000);
+  add('',['page started, ua='+navigator.userAgent.slice(0,60)]);
+})();
+</script>
 <script src="config.js"></script>
 <script>
 /* ---- default settings (config.js next to this page overrides them) for your server --------------------------------------------- */
@@ -168,9 +185,11 @@ window.RS_CONFIG = window.RS_CONFIG || {
   function Conn(url) {
     var self = this; this.state = 0; this.chunks = []; this.head = 0; this.total = 0;
     var ws = this.ws = new WebSocket(url); ws.binaryType = "arraybuffer";
-    ws.onopen = function () { self.state = 1; };
-    ws.onclose = ws.onerror = function () { self.state = 2; };
-    ws.onmessage = function (m) { var u = new Uint8Array(m.data); self.chunks.push(u); self.total += u.length; };
+    ws.onopen = function () { self.state = 1; console.log("ws open " + url.split("?")[1]); };
+    ws.onerror = function () { self.state = 2; console.log("ws ERROR " + url.split("?")[1]); };
+    ws.onclose = function (e) { self.state = 2; console.log("ws closed code=" + e.code + " in=" + self.rx); };
+    this.rx = 0;
+    ws.onmessage = function (m) { var u = new Uint8Array(m.data); self.chunks.push(u); self.total += u.length; self.rx += u.length; __dbg.wsIn += u.length; };
   }
   Conn.prototype.avail = function () { return this.total; };
   Conn.prototype.read = function (dst, off, len) {
@@ -184,7 +203,8 @@ window.RS_CONFIG = window.RS_CONFIG || {
     this.total -= n; return n;
   };
   Conn.prototype.send = function (src, off, len) {
-    if (this.ws.readyState !== 1) return;
+    if (this.ws.readyState !== 1) { console.log("ws send dropped, state " + this.ws.readyState); return; }
+    __dbg.wsOut += len;
     this.ws.send(new Uint8Array(src.buffer, src.byteOffset + off, len).slice());
   };
   Conn.prototype.close = function () { this.state = 2; try { this.ws.close(); } catch (e) {} };
@@ -192,6 +212,7 @@ window.RS_CONFIG = window.RS_CONFIG || {
   /* ---- display -------------------------------------------------------------------------- */
   var img = null, img32 = null, first = true;
   function present(px, w, h, cx, cy, cw, ch) {
+    __dbg.frames++;
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; img = null; cx = 0; cy = 0; cw = w; ch = h; }
     if (!img) { img = ctx.createImageData(w, h); img32 = new Uint32Array(img.data.buffer); cx = 0; cy = 0; cw = w; ch = h; }
     if (cx < 0) { cw += cx; cx = 0; } if (cy < 0) { ch += cy; cy = 0; }
@@ -235,7 +256,7 @@ window.RS_CONFIG = window.RS_CONFIG || {
   /* ---- start ---------------------------------------------------------------------------- */
   var s = document.createElement("script");
   s.src = "rainbow.js";
-  s.onload = function () { say("Starting client…"); try { main([]); } catch (e) { say("Could not start: " + e, true); console.error(e); } };
+  s.onload = function () { say("Starting client…"); console.log("rainbow.js loaded, calling main"); try { main([]); } catch (e) { say("Could not start: " + e, true); console.error(e); } };
   s.onerror = function () { say("Could not load rainbow.js", true); };
   document.body.appendChild(s);
 })();
