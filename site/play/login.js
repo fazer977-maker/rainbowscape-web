@@ -243,7 +243,7 @@
   function rnd(i, a, b) { return Math.abs(Math.sin(i * a) * b) % 1; }
 
   function drawBg(now) {
-    var w = innerWidth, h = innerHeight, dpr = Math.min(devicePixelRatio || 1, 2);
+    var w = lo.clientWidth, h = lo.clientHeight, dpr = Math.min(devicePixelRatio || 1, 2);
     if (bg.width !== (w * dpr | 0)) { bg.width = w * dpr | 0; bg.height = h * dpr | 0; }
     bctx.setTransform(dpr, 0, 0, dpr, 0, 0); bctx.fillStyle = "#010103"; bctx.fillRect(0, 0, w, h);
     for (var i = 0; i < 36; i++) {
