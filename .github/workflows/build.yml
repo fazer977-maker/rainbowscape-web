@@ -1,32 +1,13 @@
-name: Build web client
-on:
-  push:
-    paths-ignore: ['site/**']
-  workflow_dispatch:
-permissions:
-  contents: write
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Unpack project
-        run: unzip -q -o '*.zip'
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
-          cache-dependency-path: rsps-android/web/pom.xml
-      - name: Build web client
-        run: bash rsps-android/web/ci.sh
-      - name: Commit the site
-        run: |
-          git config user.name "build"
-          git config user.email "build@users.noreply.github.com"
-          git add site
-          git diff --cached --quiet || (git commit -m "Update built web client" && git push)
       - uses: actions/upload-artifact@v4
         with:
           name: rainbowscape-site
           path: site/
+      - name: Commit the site
+        continue-on-error: true
+        run: |
+          git config user.name "build"
+          git config user.email "build@users.noreply.github.com"
+          git add site
+          git diff --cached --quiet || git commit -m "Update built web client"
+          git pull --rebase -X theirs origin main || true
+          git push || true
