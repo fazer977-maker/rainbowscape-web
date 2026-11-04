@@ -25,6 +25,8 @@
           width: 44px; height: 44px; border-radius: 12px; border: 2px solid #ffffff55; background: #0a0714bb; color: #fff; font-size: 22px; display: block; }
   #szbtn { position: fixed; left: calc(max(10px, env(safe-area-inset-left)) + 108px); bottom: max(10px, env(safe-area-inset-bottom)); z-index: 4; opacity: .55;
           min-width: 44px; height: 44px; border-radius: 12px; border: 2px solid #ffffff55; background: #0a0714bb; color: #fff; font: 600 13px system-ui, sans-serif; padding: 0 8px; }
+  #szbtn, #dbgt { display: none !important; }
+  body.dbgmode #szbtn, body.dbgmode #dbgt { display: block !important; }
   #kb { position: fixed; left: -100px; top: 0; width: 20px; height: 20px; opacity: 0; font-size: 16px; }
   body.touch #kbtn { display: block; }
 </style>
@@ -64,6 +66,7 @@
   window.addEventListener('error',function(e){add('ERR ',[e.message+' @'+(e.filename||'').split('/').pop()+':'+e.lineno])});
   window.addEventListener('unhandledrejection',function(e){add('ERR ',['promise: '+(e.reason&&e.reason.message||e.reason)])});
   el.style.display=on?'block':'none';
+  if(on)document.body.classList.add('dbgmode');
   tg.onclick=function(){on=!on;el.style.display=on?'block':'none';if(on)el.textContent=lines.join('\n')};
   var lastIn=0,lastT=Date.now();setInterval(function(){var n=Date.now(),r=Math.round((__dbg.wsIn-lastIn)/Math.max(1,n-lastT)); lastIn=__dbg.wsIn;lastT=n;add('',['alive frames='+__dbg.frames+' in='+(__dbg.wsIn/1048576).toFixed(1)+'MB rate='+r+'KB/s'])},4000);
   add('',['page started, ua='+navigator.userAgent.slice(0,60)]);
@@ -199,12 +202,21 @@ window.RS_CONFIG = window.RS_CONFIG || {
     if (CTL[e.key]) { push(7, CTL[e.key][0], CTL[e.key][1], 0); e.preventDefault(); return; }
     if (e.key && e.key.length === 1 && e.target !== kb) { push(6, e.key.charCodeAt(0), 0, 0); e.preventDefault(); }
   });
+  /* typing goes straight to the game: the hidden input is diffed against what it held before, so
+     predictive keyboards (which change the text while composing) still type letter by letter */
+  var KB0 = "\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0", kbPrev = KB0;
+  function kbReset() { kb.value = KB0; kbPrev = KB0; try { kb.setSelectionRange(KB0.length, KB0.length); } catch (e) {} }
+  kb.addEventListener("focus", function () { kbReset(); });
   kb.addEventListener("beforeinput", function (e) {
-    var t = e.inputType;
-    if (t === "insertText" && e.data) { for (var i = 0; i < e.data.length; i++) push(6, e.data.charCodeAt(i), 0, 0); }
-    else if (t === "deleteContentBackward") push(7, 8, 8, 0);
-    else if (t === "insertLineBreak" || t === "insertParagraph") push(7, 10, 10, 0);
-    e.preventDefault();
+    if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") { push(7, 10, 10, 0); e.preventDefault(); }
+  });
+  kb.addEventListener("input", function () {
+    var v = kb.value, i = 0, m = Math.min(v.length, kbPrev.length);
+    while (i < m && v.charCodeAt(i) === kbPrev.charCodeAt(i)) i++;
+    for (var k = kbPrev.length - i; k > 0; k--) push(7, 8, 8, 0);
+    for (var j = i; j < v.length; j++) { var ch = v.charCodeAt(j); if (ch === 10) push(7, 10, 10, 0); else if (ch !== 160) push(6, ch, 0, 0); }
+    kbPrev = v;
+    if (v.length < KB0.length - 2 || v.length > 120) kbReset();
   });
   kb.addEventListener("keydown", function (e) { if (e.key === "Unidentified") return; e.stopPropagation(); if (CTL[e.key]) { push(7, CTL[e.key][0], CTL[e.key][1], 0); e.preventDefault(); } else if (NAV[e.key] !== undefined) { push(8, NAV[e.key], 0, 0); e.preventDefault(); } });
   window.addEventListener("focus", function () { push(9, 1, 0, 0); });
@@ -272,7 +284,11 @@ window.RS_CONFIG = window.RS_CONFIG || {
     if (first) { first = false; statusEl.style.display = "none"; }
   }
   var SIZES = [720, 960, 1200, 1500], gameW = 1200;
-  try { var sv = parseInt(localStorage.getItem("rs-w"), 10); if (sv >= 600 && sv <= 2000) gameW = sv; } catch (e) {}
+  try {
+    var qw = /[?&]w=(\d+)/.exec(location.search);
+    if (qw) localStorage.setItem("rs-w", qw[1]);
+    var sv = parseInt(localStorage.getItem("rs-w"), 10); if (sv >= 600 && sv <= 2000) gameW = sv;
+  } catch (e) {}
   function viewW() { return Math.max(200, gameW); }
   function viewH() { return Math.max(200, Math.floor((portrait() ? window.innerWidth : window.innerHeight) * gameW / lw())); }
 
