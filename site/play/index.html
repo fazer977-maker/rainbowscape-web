@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-visual">
 <meta name="theme-color" content="#0a0714">
 <title>Rainbow Scape</title>
 <style>
@@ -52,7 +52,7 @@
 <button id="dbgt" style="position:fixed;right:6px;bottom:6px;z-index:51;font:12px monospace;padding:6px 9px;border-radius:6px;border:1px solid #666;background:#222;color:#ccc">log</button>
 <script>
 (function(){
-  var el=document.getElementById('dbg'),lines=[],t0=Date.now(),on=true,tg=document.getElementById('dbgt');
+  var el=document.getElementById('dbg'),lines=[],t0=Date.now(),on=/[?&]debug/.test(location.search),tg=document.getElementById('dbgt');
   window.__dbg={frames:0,wsIn:0,wsOut:0};
   function add(c,a){var m=Array.prototype.slice.call(a).map(function(x){try{return typeof x==='string'?x:(x&&x.stack)||JSON.stringify(x)}catch(e){return String(x)}}).join(' ');
     lines.push(((Date.now()-t0)/1000).toFixed(1)+'s '+c+m.slice(0,220));if(lines.length>26)lines.shift();if(on)el.textContent=lines.join('\n');}
@@ -60,6 +60,7 @@
   ['log','info','warn','error'].forEach(function(k){var o=console[k];console[k]=function(){add(k==='error'?'ERR ':k==='warn'?'WARN ':'',arguments);try{o.apply(console,arguments)}catch(e){}}});
   window.addEventListener('error',function(e){add('ERR ',[e.message+' @'+(e.filename||'').split('/').pop()+':'+e.lineno])});
   window.addEventListener('unhandledrejection',function(e){add('ERR ',['promise: '+(e.reason&&e.reason.message||e.reason)])});
+  el.style.display=on?'block':'none';
   tg.onclick=function(){on=!on;el.style.display=on?'block':'none';if(on)el.textContent=lines.join('\n')};
   var lastIn=0,lastT=Date.now();setInterval(function(){var n=Date.now(),r=Math.round((__dbg.wsIn-lastIn)/Math.max(1,n-lastT)); lastIn=__dbg.wsIn;lastT=n;add('',['alive frames='+__dbg.frames+' in='+(__dbg.wsIn/1048576).toFixed(1)+'MB rate='+r+'KB/s'])},4000);
   add('',['page started, ua='+navigator.userAgent.slice(0,60)]);
@@ -134,7 +135,7 @@ window.RS_CONFIG = window.RS_CONFIG || {
       }, 450);
     } else if (n === 2) {
       clearTimeout(T.longTimer);
-      if (T.dragging) { var s = T.start.p; push(3, s[0], s[1], 1); }
+      if (T.dragging) { var s = T.start.p; push(13, s[0], s[1], 0); }
       T.dragging = false; T.longDone = true;
       var ts = Object.keys(T.pts).map(function (k) { return T.pts[k]; });
       T.cx = (ts[0].clientX + ts[1].clientX) / 2; T.cy = (ts[0].clientY + ts[1].clientY) / 2;
@@ -149,19 +150,19 @@ window.RS_CONFIG = window.RS_CONFIG || {
       var t = e.changedTouches[0], p = pos(t);
       if (!T.dragging && Math.hypot(t.clientX - T.start.x, t.clientY - T.start.y) > 10) {
         T.dragging = true; clearTimeout(T.longTimer);
-        push(2, T.start.p[0], T.start.p[1], 1);
+        push(12, T.start.p[0], T.start.p[1], 0);
       }
-      if (T.dragging) push(4, p[0], p[1], 0);
+      if (T.dragging) push(14, p[0], p[1], 0);
     } else if (n === 2) {
       var ts = Object.keys(T.pts).map(function (k) { return T.pts[k]; });
       var cx = (ts[0].clientX + ts[1].clientX) / 2, cy = (ts[0].clientY + ts[1].clientY) / 2;
       var d = Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
       T.accX += cx - T.cx; T.accY += cy - T.cy; T.cx = cx; T.cy = cy;
-      while (T.accX > 14) { push(8, 39, 0, 0); T.accX -= 14; }
-      while (T.accX < -14) { push(8, 37, 0, 0); T.accX += 14; }
-      while (T.accY > 14) { push(8, 40, 0, 0); T.accY -= 14; }
-      while (T.accY < -14) { push(8, 38, 0, 0); T.accY += 14; }
-      if (Math.abs(d - T.dist) > 24) { push(5, canvas.width >> 1, canvas.height >> 1, d > T.dist ? -1 : 1); T.dist = d; }
+      var gs = canvas.width / canvas.getBoundingClientRect().width;
+      var dxg = T.accX * gs, dyg = T.accY * gs; T.accX = T.accY = 0;
+      if (dxg || dyg) push(10, Math.round(-dxg * 1.6 * 100), Math.round(dyg * 100), 0);
+      if (d > 1 && T.dist > 1 && d !== T.dist) { push(11, Math.round(T.dist / d * 1000), 0, 0); }
+      T.dist = d;
     }
   }, { passive: false });
   function tend(e) {
@@ -171,7 +172,7 @@ window.RS_CONFIG = window.RS_CONFIG || {
     if (wasOne && T.start) {
       clearTimeout(T.longTimer);
       var t = e.changedTouches[0], p = pos(t);
-      if (T.dragging) push(3, p[0], p[1], 1);
+      if (T.dragging) push(13, p[0], p[1], 0);
       else if (!T.longDone) { push(2, T.start.p[0], T.start.p[1], 1); push(3, T.start.p[0], T.start.p[1], 1); }
       T.start = null; T.dragging = false;
     }
@@ -185,6 +186,7 @@ window.RS_CONFIG = window.RS_CONFIG || {
   var NAV = { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, PageUp: 33, PageDown: 34, Home: 36, End: 35 };
   var CTL = { Enter: [10, 10], Backspace: [8, 8], Tab: [9, 9], Escape: [27, 27], Delete: [127, 127] };
   document.addEventListener("keydown", function (e) {
+    if (e.target && e.target.tagName === "INPUT" && e.target !== kb) return;   // typing in the login form
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (NAV[e.key] !== undefined) { push(8, NAV[e.key], 0, 0); e.preventDefault(); return; }
     if (CTL[e.key]) { push(7, CTL[e.key][0], CTL[e.key][1], 0); e.preventDefault(); return; }
@@ -391,5 +393,6 @@ window.RS_CONFIG = window.RS_CONFIG || {
   })();
 
 </script>
+<script src="login.js" charset="utf-8"></script>
 </body>
 </html>
