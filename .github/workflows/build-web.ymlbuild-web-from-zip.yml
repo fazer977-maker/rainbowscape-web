@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Unpack project
-        run: unzip -q rsps-android.zip
+        run: unzip -q *.zip
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
